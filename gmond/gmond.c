@@ -1952,7 +1952,7 @@ gmetric_value_to_str(Ganglia_value_msg *message)
 static apr_status_t
 print_host_metric( apr_socket_t *client, Ganglia_metadata *data, Ganglia_metadata *val, apr_time_t now )
 {
-  char metricxml[1024];
+  char metricxml[16*1024];
   apr_size_t len;
   apr_status_t ret;
   char *metricName=NULL, *realName=NULL;
@@ -1969,7 +1969,7 @@ print_host_metric( apr_socket_t *client, Ganglia_metadata *data, Ganglia_metadat
       return APR_SUCCESS;
     }
   
-  len = apr_snprintf(metricxml, 1024,
+  len = apr_snprintf(metricxml, sizeof(metricxml),
           "<METRIC NAME=\"%s\" VAL=\"%s\" TYPE=\"%s\" UNITS=\"%s\" TN=\"%d\" TMAX=\"%d\" DMAX=\"%d\" SLOPE=\"%s\">\n",
               metricName,
               gmetric_value_to_str(&(val->message_u.v_message)),
@@ -1979,6 +1979,11 @@ print_host_metric( apr_socket_t *client, Ganglia_metadata *data, Ganglia_metadat
               data->message_u.f_message.Ganglia_metadata_msg_u.gfull.metric.tmax,
               data->message_u.f_message.Ganglia_metadata_msg_u.gfull.metric.dmax,
               slope_to_cstr(data->message_u.f_message.Ganglia_metadata_msg_u.gfull.metric.slope));
+  if (len >= sizeof(metricxml))
+    {
+      debug_msg("metric %s did not fit in %zd byte buffer", metricName, sizeof(metricxml));
+      return APR_ENOMEM;
+    }
 
   if (metricName) free(metricName);
   if (realName) free(realName);
@@ -1987,20 +1992,25 @@ print_host_metric( apr_socket_t *client, Ganglia_metadata *data, Ganglia_metadat
   if ((ret == APR_SUCCESS) && allow_extra_data) 
     {
       int extra_len = data->message_u.f_message.Ganglia_metadata_msg_u.gfull.metric.metadata.metadata_len;
-      len = apr_snprintf(metricxml, 1024, "<EXTRA_DATA>\n");
+      len = apr_snprintf(metricxml, sizeof(metricxml), "<EXTRA_DATA>\n");
       socket_send(client, metricxml, &len);
       for (; extra_len > 0; extra_len--) 
         {
-          len = apr_snprintf(metricxml, 1024, "<EXTRA_ELEMENT NAME=\"%s\" VAL=\"%s\"/>\n", 
+          len = apr_snprintf(metricxml, sizeof(metricxml), "<EXTRA_ELEMENT NAME=\"%s\" VAL=\"%s\"/>\n",
                  data->message_u.f_message.Ganglia_metadata_msg_u.gfull.metric.metadata.metadata_val[extra_len-1].name,
                  data->message_u.f_message.Ganglia_metadata_msg_u.gfull.metric.metadata.metadata_val[extra_len-1].data);
+          if (len >= sizeof(metricxml))
+            {
+              debug_msg("extra data for %s did not fit in %zd byte buffer", metricName, sizeof(metricxml));
+              return APR_ENOMEM;
+            }
           socket_send(client, metricxml, &len);
         }
-        len = apr_snprintf(metricxml, 1024, "</EXTRA_DATA>\n");
+        len = apr_snprintf(metricxml, sizeof(metricxml), "</EXTRA_DATA>\n");
         socket_send(client, metricxml, &len);
     }
   /* Send the closing tag */
-  len = apr_snprintf(metricxml, 1024, "</METRIC>\n");
+  len = apr_snprintf(metricxml, sizeof(metricxml), "</METRIC>\n");
 
   return socket_send(client, metricxml, &len);
 }
